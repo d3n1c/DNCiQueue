@@ -1,0 +1,215 @@
+<?php
+
+/* 
+ * Copyright (C) 2015 denic
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
+
+/**
+ * Implementation of hook_load
+ *  @return arg
+ **/
+function dnciqueue_load($arg) {
+  return $arg;
+}
+
+function dnciqueue_menu() {
+  $items = array();
+  
+  $items['admin/config/system/dncsystem/dnciqueue'] = array(
+    'title' => 'iQueue System',
+    'description' => 'DNC Input iQueue system parameters and configurations',
+    'access arguments' => array('administer dnc system'),
+    'page callback' => 'system_admin_menu_block_page',
+    'file' => 'system.admin.inc',
+    'file path' => drupal_get_path('module', 'system'),
+  );
+  $items['admin/config/system/dncsystem/dnciqueue/global'] = array(
+    'title' => 'Global',
+    'description' => 'Global DNC iQueue system parameters and configurations',
+    'access arguments' => array('administer dnc system'),
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('dnciqueue_main_admin_params'),
+    'file' => 'dnciqueue.admin.inc',
+  );
+  
+  return $items;
+}
+
+function dnciqueue_get_remote_resource($id_key, $url) {
+  $result = dncclient_get_remote_dnc_resource($id_key, $url);
+  if (!empty($result['error'])) {
+    drupal_set_message(t('Server said: <strong>"%msg"</strong>', array('%msg' => $result['message'])), 'error', FALSE);
+    unset ($result);
+    return NULL;
+  }
+  return $result;
+}
+
+function dnciqueue_store_sections_info($sections) {
+  $data = array(
+    'data' => $sections,
+    'timestamp' => time(),
+  );
+  variable_set('dnciqueue_sections', $data);
+  unset($data);
+}
+
+function dnciqueue_get_sections() {
+  $check = variable_get('dnciqueue_sections', array());
+  if (count($check) < 1 || empty($check['data']) || (time() - $check['timestamp']) > (60 * 30)) {
+    $result = dnciqueue_get_data_sections();
+    if (is_null($result) || count($result) < 1) {
+      unset ($result, $check);
+      return NULL;
+    }
+    dnciqueue_store_sections_info($result);
+    return $result;
+  }
+  
+  return $check['data'];
+}
+
+function dnciqueue_get_data_sections() {
+  $vparams = dnciqueue_challange_main_params();
+  if (empty($vparams['agents']['sections'])) {
+    unset ($vparams);
+    return NULL;
+  }
+  $data = array();
+  $data[$vparams['agents']['sections']][0] = array(
+    'arguments' => array()
+  );
+  $result = dnciqueue_get_remote_values($data);
+  unset ($data);
+  
+  if (empty($result[$vparams['agents']['sections']])) {
+    unset ($vparams, $result);
+    return NULL;
+  }
+  $result = $result[$vparams['agents']['sections']];
+  unset ($vparams);
+  
+  $return = array();
+  if (is_array($result[0]) && count($result[0]) > 0) {
+    foreach ($result[0] as $key => $value) {
+      $return[$value['nid']] = $value;
+    }
+  }
+  unset ($result);
+  return $return;
+}
+
+function dnciqueue_challange_main_params($stringtype = NULL, $goto = NULL) {
+  $strvar = 'dnciqueue' . (!empty($stringtype) ? '_' . $stringtype . '_' : '_') . 'params';
+  $vkind = variable_get($strvar, array());
+  unset ($strvar);
+  if (count($vkind) < 1) {
+    drupal_set_message(t('We need default parameter first, please solve this problem first !'), 'error', FALSE);
+    unset ($vkind);
+    $goto = is_null($goto) ? 'admin/config/system/dncsystem/dnciqueue/global' : $goto;
+    drupal_goto(drupal_get_path_alias($goto));
+    return;
+  }
+  return $vkind;
+}
+
+function dnciqueue_extract_agent($data) {
+  $result = base64_decode($data);
+  $result = explode('|', $result);
+  return array(
+    'id' => $result[0],
+    'url' => $result[1],
+    'requestID' => $result[2],
+  );
+}
+
+function dnciqueue_get_remote_values(array $data = array()) {
+  if (count($data) < 1) {
+    return NULL;
+  }
+  
+  $requests = array();
+  foreach ($data as $keys => $values) {
+    $agent = dnciqueue_extract_agent($keys);
+    $ky = base64_encode($agent['id'] . '|' . $agent['url']);
+    foreach ($values as $key => $value) {
+      $requests[$ky][$key][$agent['requestID']] = array(
+        'arguments' => $value['arguments'],
+      );
+      if (!empty($value['output_format'])) {
+        $requests[$ky][$key][$agent['requestID']]['output_format'] = $value['output_format'];
+      }
+    }
+    unset ($ky, $agent);
+  }
+  
+  $result = dnciqueue_get_remote_results($requests);
+  unset ($requests);
+  if (empty($result) || count($result) < 1) {
+    unset ($result);
+    return NULL;
+  }
+  
+  $return = array();
+  foreach ($result as $keys => $values) {
+    if (is_array($values) && count($values) > 0) {
+      $agent = base64_decode($keys);
+      foreach ($values as $key => $value) {
+        foreach ($value as $ky => $vl) {
+          $dump = $agent . '|' . $ky;
+          $dump = base64_encode($dump);
+          $return[$dump][$key] = $vl;
+          unset ($dump);
+        }
+      }
+      unset ($agent);
+    }
+  }
+  unset ($result);
+  
+  return $return;
+}
+
+function dnciqueue_get_remote_results(array $requests = array()) {
+  if (count($requests) < 1) {
+    unset ($requests);
+    return NULL;
+  }
+  
+  $return = array();
+  foreach ($requests as $key => $value) {
+    $agent = base64_decode($key);
+    list($id, $url) = explode('|', $agent);
+    unset ($agent);
+    $dump = dnciqueue_order_remote_request($id, $url, $value);
+    $return[$key] = $dump;
+    unset ($id, $url, $dump);
+  }
+  unset ($requests);
+  return $return;
+}
+
+function dnciqueue_order_remote_request($id, $url, array $params = array()) {
+  $agent = dncclient_get_agent($id, $url);
+  if (is_null($agent)) {
+    unset ($agent);
+    return NULL;
+  }
+  unset ($agent);
+  $result = dncclient_call_remote_server($id, $url, 'dncsystem.order', $params);
+  unset ($id, $url);
+  return $result;
+}

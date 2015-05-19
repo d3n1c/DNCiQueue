@@ -1,0 +1,325 @@
+<?php
+
+/* 
+ * Copyright (C) 2015 denic
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
+
+/**
+ * Implementation of hook_load
+ *  @return arg
+ **/
+function dnciqueue_use_load($arg) {
+  return $arg;
+}
+
+/**
+ * Implemented hook_permission
+ * to handle user access stricly
+ * 
+ * @return array
+ */
+function dnciqueue_use_permission() {
+  return array (
+    'administer dnc use iqueue' => array(
+      'title' => t('Administer Using of DNC iQueue'),
+      'description' => t('Administer all action of using iqueue system')
+    ),
+  );
+}
+
+function dnciqueue_use_menu() {
+  $items = array();
+  
+  $items['admin/config/system/dncsystem/dnciqueue/use'] = array(
+    'title' => 'Using',
+    'description' => 'DNC Using iQueue system parameters and configurations',
+    'access arguments' => array('administer dnc use iqueue'),
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('dnciqueue_use_admin_params'),
+    'file' => 'dnciqueue_use.admin.inc',
+  );
+  $items['admin/structure/dncsystem/dnciqueueuse'] = array(
+    'title' => 'Using iQueue',
+    'description' => 'Set User that Using DNC iQueue system',
+    'access arguments' => array('administer dnc use iqueue'),
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('dnciqueue_use_admin_counters'),
+    'file' => 'dnciqueue_use.admin.inc',
+  );
+  $items['admin/structure/dncsystem/dnciqueueuse/add'] = array(
+    'title' => 'Add',
+    'description' => 'Add User that Using DNC iQueue system',
+    'access arguments' => array('administer dnc use iqueue'),
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('dnciqueue_use_add_admin_counters'),
+    'file' => 'dnciqueue_use.admin.inc',
+    'type' => MENU_LOCAL_ACTION,
+  );
+  $items['dnciqueue/use'] = array(
+    'title' => 'Get My Queue',
+    'description' => 'Getting number of queue to serve',
+    'access callback' => 'user_is_logged_in',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('dnciqueue_use_show_button'),
+  );
+  $items['dnciqueue/get/%dnciqueue_use'] = array(
+    'access callback' => 'user_is_logged_in',
+    'page callback' => 'dnciqueue_use_get_number_action',
+    'type' => MENU_CALLBACK,
+  );
+  $items['iqueueplay'] = array(
+    'title' => t('Play Queue'),
+    'description' => t('Play queue number in call'),
+    'page callback' => 'dnciqueue_use_play_queue',
+    'access callback' => TRUE,
+    'type' => MENU_CALLBACK,
+  );
+  $items['iqueueplaytesting'] = array(
+    'title' => t('Play Testing'),
+    'description' => t('Play testing queue calling number'),
+    'page callback' => 'dnciqueue_use_play_example_sound',
+    'access callback' => TRUE,
+    'type' => MENU_CALLBACK,
+  );
+  
+  return $items;
+}
+
+function dnciqueue_use_show_button(array $form = array(), array $form_state = array()) {
+  global $user;
+  $defaults = dnciqueue_use_challange_global_vars();
+  if (empty($defaults['counters'][$user->uid])) {
+    $justReadonly = 1;
+  }
+  $next = dnciqueue_use_get_next_queue();
+  $sections = dnciqueue_get_sections();
+  $form['section'] = array(
+    '#type' => 'fieldset',
+    '#title' => t('Queue of @section', array('@section' => $sections[$defaults['section']]['title'])),
+    '#collapsible' => TRUE,
+    '#collapsed' => FALSE,
+  );
+  $button = t('Next !sign @number', array('!sign' => html_entity_decode('&raquo;'), '@number' => $next));
+  $form['section']['next'] = array(
+    '#type' => !empty($justReadonly) ? 'item' : 'submit',
+    '#value' => $button,
+    '#markup' => $button,
+  );
+  unset ($next, $view);
+  return $form;
+}
+
+function dnciqueue_use_show_button_submit(&$form, &$form_state) {
+  form_state_values_clean($form_state);
+  $data = variable_get('dnciqueue_use_numbers', array());
+  $vparams = dnciqueue_use_challange_global_vars();
+  $data[$vparams['section']] = !empty($data[$vparams['section']]) ? ($data[$vparams['section']] + 1) : 1;
+  $number = $data[$vparams['section']];
+  variable_set('dnciqueue_use_numbers', $data);
+  dnciqueue_use_input_next_queue($vparams['section'], $number);
+  unset($data, $number, $vparams);
+  $form_state['redirect'] = current_path();
+}
+
+function dnciqueue_use_challange_global_vars($goto = NULL) {
+  $result = variable_get('dnciqueue_use_params', array());
+  if (count($result) < 1) {
+    drupal_set_message(t('We need global default parameter first, please solve this problem first !'), 'error', FALSE);
+    unset ($vkind);
+    $goto = is_null($goto) ? 'admin/config/system/dncsystem/dnciqueue/use' : $goto;
+    drupal_goto(drupal_get_path_alias($goto));
+    return;
+  }
+  return $result;
+}
+
+function dnciqueue_use_get_next_queue() {
+  $vparams = dnciqueue_use_challange_global_vars();
+  if (empty($vparams['section'])) {
+    unset ($vparams);
+    return NULL;
+  }
+  $data = variable_get('dnciqueue_use_numbers', array());
+  return !empty($data[$vparams['section']]) ? ($data[$vparams['section']] + 1) : 1;
+}
+
+function dnciqueue_use_input_next_queue($section, $number) {
+  if (module_exists('dnciqueue')) {
+    global $user;
+    $vparams = dnciqueue_use_challange_global_vars();
+    $counter = !empty($vparams['counters'][$user->uid]) ? $vparams['counters'][$user->uid] : NULL;
+    $data = array();
+    $data[$vparams['agents']['inputNumber']][0] = array(
+      'arguments' => array($section, $number, $counter),
+    );
+    dnciqueue_get_remote_values($data);
+    unset ($counter, $data, $vparams);
+  }
+  return;
+}
+
+// ------------------- This block is just form demo purpose ! -------------------//
+
+function dnciqueue_use_play_queue() {
+  $output['content'][] = drupal_get_form('dnciqueue_use_go_around');
+  $output['content'][] = drupal_get_form('dnciqueue_use_set_start');
+  return $output;
+}
+
+function dnciqueue_use_convert_sound() {
+  return array(
+    'nol', 'satu', 'dua', 'tiga', 'empat', 'lima', 'enam', 'tujuh', 'delapan', 'sembilan'
+  );
+}
+
+function dnciqueue_use_set_start() {
+  $suffix = dnciqueue_use_render_number_to_sounds(variable_get('dnciqueue_use_demo_start', 1));
+  $form['setstart'] = array(
+    '#type' => 'fieldset',
+    '#title' => t('Set Start'),
+    '#description' => t('Set where queue of numbers were started'),
+    '#collapsible' => TRUE,
+    '#collapsed' => TRUE,
+  );
+  $form['setstart']['start'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Start Number'),
+    '#description' => t('Started from number'),
+    '#size' => 5,
+    '#default_value' => variable_get('dnciqueue_use_demo_start', 1),
+  );
+  
+  $form['setstart']['submit'] = array(
+    '#type' => 'submit',
+    '#value' => t('Set'),
+    '#suffix' => $suffix,
+  );
+  return $form;
+}
+
+function dnciqueue_use_set_start_submit(&$form, &$form_state) {
+  form_state_values_clean($form_state);
+  variable_set('dnciqueue_use_demo_start', $form_state['input']['start']);
+  $form_state['redirect'] = current_path();
+}
+
+function dnciqueue_use_play_example_sound() {
+//    window.location.replace('" . drupal_get_destination() . "');
+  $dest = drupal_get_destination();
+  $js = "
+	function play_queue_sounds() {
+		document.getElementById('examplesound').play();
+    setTimeout(function () {window.location.replace('" . $dest['destination'] . "')}, 7000);
+  }";
+  drupal_add_js($js, 'inline');
+  drupal_add_js(
+    'window.onload = play_queue_sounds;',
+    'inline'
+  );
+  unset ($js, $dest);
+  
+  $soundpath = drupal_get_path('module', 'dnciqueue_use') . '/sounds';
+  $audios = '<br />';
+  $audios .= '<audio id="examplesound" preload="auto" src="' . $soundpath . '/testing.wav"></audio>';
+  unset ($soundpath);
+  $audios .= t('JUST TESTING sound!');
+  $audios .= '<br />';
+  return $audios;
+}
+
+function dnciqueue_use_render_number_to_sounds($number) {
+  $number = str_split($number);
+  $soundpath = drupal_get_path('module', 'dnciqueue_use') . '/sounds';
+  $audios = '<br />';
+  $audios .= '<audio id="queuenumber" preload="auto" src="' . $soundpath . '/start.ogg"></audio>';
+  
+  if (count($number) > 0) {
+    $numtosound = dnciqueue_use_convert_sound();
+    foreach ($number as $key => $value) {
+      settype($value, 'int');
+      if (isset($numtosound[$value])) {
+        $audios .= '<br />';
+        $audios .= '<audio id="queueaudio' . $key . '" preload="auto" src="' . $soundpath . '/' . $numtosound[$value] . '.ogg"></audio>';
+      }
+    }
+    unset ($numtosound);
+  }
+  
+//  $audios .= '<br />';
+//  $audios .= '<audio id="queuecounter" preload="auto" src="' . $soundpath . '/mohonkecounter.wav"></audio>';
+//  $audios .= '<br />';
+//  $audios .= '<audio id="queuencounter" preload="auto" src="' . $soundpath . '/tujuh.wav"></audio>';
+  unset ($soundpath);
+  $audios .= '<br />';
+  return $audios;
+}
+
+function dnciqueue_use_render_js($number) {
+  $number = str_split($number);
+  $result = "
+	function play_queue_sounds() {
+		document.getElementById('queuenumber').play();
+   ";
+  $ltime = 2000;
+  foreach ($number as $key => $value) {
+    $result .= "\n" . "setTimeout(function () {document.getElementById('queueaudio" . $key . "').play()}, " . ($ltime + ($key * 1000)) . ");";
+  }
+  $result .= "\n" . "setTimeout(function () {document.getElementById('queuecounter').play()}, " . ($ltime + (count($number) * 1000)) . ");";
+  $result .= "\n" . "setTimeout(function () {document.getElementById('queuencounter').play()}, " . ($ltime + ((count($number) + 1) * 1000) + 1000) . ");";
+  unset ($ltime, $n);
+  $result .= "}";
+  return $result;
+}
+
+function dnciqueue_use_go_around() {
+  $current = variable_get('dnciqueue_use_demo_start', 1);
+  $result = dnciqueue_use_render_js($current);
+  drupal_add_js($result, 'inline');
+  drupal_add_js(
+    'window.onload = play_queue_sounds;',
+    'inline'
+  );
+  $form['play'] = array(
+    '#type' => 'fieldset',
+    '#title' => t('Number Now'),
+    '#description' => t('Display turned number now'),
+    '#collapsible' => TRUE,
+    '#collapsed' => FALSE,
+  );
+  $form['play']['start'] = array(
+    '#type' => 'item',
+    '#markup' => l($current, 'javascript: play_queue_sounds();', array('fragment' => '', 'external' => TRUE)),
+    '#prefix' => '<div style="font-size: 24pt; font-weight: bold; font-family: Arial; text-align: center">',
+    '#suffix' => '</div>',
+  );
+  
+  $form['play']['submit'] = array(
+    '#type' => 'submit',
+    '#value' => t('Next !sign @current', array('!sign' => html_entity_decode('&raquo;'), '@current' => $current)),
+    '#weight' => -30,
+  );
+  unset ($current);
+  return $form;
+}
+
+function dnciqueue_use_go_around_submit(&$form, &$form_state) {
+  form_state_values_clean($form_state);
+  $num = variable_get('dnciqueue_use_demo_start', 1);
+  $num++;
+  variable_set('dnciqueue_use_demo_start', $num);
+  unset ($num);
+  $form_state['redirect'] = current_path();
+}

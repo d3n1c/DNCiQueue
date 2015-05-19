@@ -1,0 +1,174 @@
+<?php
+
+/* 
+ * Copyright (C) 2015 denic
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
+
+/**
+ * Implementation of hook_load
+ *  @return arg
+ **/
+function dnciqueue_input_load($arg) {
+  return $arg;
+}
+
+/**
+ * Implemented hook_permission
+ * to handle user access stricly
+ * 
+ * @return array
+ */
+function dnciqueue_input_permission() {
+  return array (
+    'administer dnc input iqueue' => array(
+      'title' => t('Administer DNC Input iQueue'),
+      'description' => t('Administer all action of input iqueue system')
+    ),
+  );
+}
+
+function dnciqueue_input_menu() {
+  $items = array();
+  
+  $items['dnciqueue/input'] = array(
+    'title' => 'Get My Number',
+    'description' => 'Getting number to be one of queue part',
+    'access callback' => TRUE,
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('dnciqueue_input_show_button'),
+  );
+  $items['dnciqueue/get/%dnciqueue_input'] = array(
+    'access callback' => TRUE,
+    'page callback' => 'dnciqueue_input_get_number_action',
+    'type' => MENU_CALLBACK,
+  );
+  
+  return $items;
+}
+
+function dnciqueue_input_show_button(array $form = array(), array $form_state = array(), $specific_section = NULL) {
+  $sections = dnciqueue_get_sections();
+  if (is_array($sections) && count($sections) > 0) {
+    $sdata = array();
+    foreach ($sections as $key => $value) {
+      $sdata[] = $value['nid'];
+    }
+    $nexts = dnciqueue_input_get_next_number($sdata);
+    unset ($sdata);
+    
+    if (!empty($nexts) && is_array($nexts) && count($nexts) > 0) {
+      if (!empty($specific_section)) {
+        if (!empty($nexts[$specific_section])) {
+          $form['section'] = array(
+            '#type' => 'value',
+            '#value' => $specific_section,
+          );
+          $form['section_field'] = array(
+            '#type' => 'fieldset',
+            '#title' => $sections[$specific_section]['title'],
+            '#collapsible' => FALSE,
+          );
+          $form['section_field']['submit'] = array(
+            '#type' => 'submit',
+            '#value' => t('Next number @number', array('@number' => $nexts[$specific_section])),
+          );
+        }
+      }
+      else {
+        $form['info'] = array(
+          '#type' => 'item',
+          '#markup' => t('Some important information ...'),
+        );
+        foreach ($nexts as $key => $value) {
+          $form['section' . $key] = array(
+            '#type' => 'fieldset',
+            '#title' => $sections[$key]['title'],
+            '#collapsible' => FALSE,
+          );
+          $buttonlink = '<button type="button" onclick="location.href=\'/dnciqueue/get/' . $key . '\'" />' . t('Get next number <strong>@number</strong>', array('@number' => $value)) . '</button>';
+          $form['section' . $key]['button' . $key] = array(
+            '#type' => 'markup',
+            '#markup' => $buttonlink,
+          );
+          unset ($buttonlink);
+        }
+      }
+    }
+    unset ($nexts);
+  }
+  return $form;
+}
+
+function dnciqueue_input_show_button_submit(&$form, &$form_state) {
+  form_state_values_clean($form_state);
+  dnciqueue_input_set_queue_number($form_state['values']['section']);
+  $form_state['redirect'] = current_path();
+}
+
+function dnciqueue_input_challange_global_vars($goto = NULL) {
+  $result = variable_get('dnciqueue_input_params', array());
+  if (count($result) < 1) {
+    drupal_set_message(t('We need global default parameter first, please solve this problem first !'), 'error', FALSE);
+    unset ($vkind);
+    $goto = is_null($goto) ? 'admin/config/system/dncsystem/dnciqueue/input' : $goto;
+    drupal_goto(drupal_get_path_alias($goto));
+    return;
+  }
+  return $result;
+}
+
+function dnciqueue_input_set_queue_number($section) {
+  $data = variable_get('dnciqueue_numbers', array());
+  $data[$section] = empty($data[$section]) ? 1 : ($data[$section] + 1);
+  $number = $data[$section];
+  variable_set('dnciqueue_numbers', $data);
+  unset ($data);
+  dnciqueue_input_send_to_printer($section, $number);
+  unset ($number);
+}
+
+function dnciqueue_input_get_number_action() {
+  $varkey = explode('/', drupal_get_path_alias($_GET['q']));
+  $varkey = $varkey[(count($varkey) - 1)];
+  $sections = dnciqueue_get_sections();
+  if (empty($sections[$varkey])) {
+    unset ($varkey, $sections);
+    drupal_set_message(t('Sorry we\'re failed :('), 'error', FALSE);
+  }
+  unset ($sections);
+  dnciqueue_input_set_queue_number($varkey);
+  drupal_goto('dnciqueue/input');
+}
+
+function dnciqueue_input_get_next_number(array $sections = array()) {
+//  echo '<pre>'; print_r($sections); echo '</pre>'; exit;
+  $return = array();
+  if (count($sections) < 1) {
+    return $return;
+  }
+  
+  $data = variable_get('dnciqueue_numbers', array());
+  foreach ($sections as $value) {
+    $return[$value] = !empty($data[$value]) ? ($data[$value] + 1) : 1;
+  }
+  unset ($data);
+  return $return;  
+}
+
+function dnciqueue_input_send_to_printer($section, $number) {
+  // print execution here
+  
+}

@@ -1,0 +1,9 @@
+; $Id: dnciqueue_use.info,v 0.1 2015/05/13 03:18:56 denic Exp $
+name = DNC Queue Use Interface
+description = "Interface for use DNC System's queue"
+package = Customs
+;dependencies[] = dncmain
+;dependencies[] = dncclient
+;dependencies[] = dnciqueue
+version = 7.x-0.1-dev
+core = 7.x

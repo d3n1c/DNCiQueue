@@ -1,0 +1,6 @@
+#!/bin/bash
+while :
+do
+	wget -O - -q -t 1 http://input.queue.in/cron.php?cron_key=-4NMDnTeijVn4ZPykY_9grVwg1xWkg3u2_XPe2F5whU
+	sleep 45
+done
